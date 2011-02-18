@@ -3,7 +3,8 @@
 /**
 * HTTP Multistream Downloader
 * 
-* @copy Copyright Mikhail Yiurasov <me@yurasov.me> 2011
+* @author Mikhail Yurasov <me@yurasov.me>
+* @copy Copyright (c) 2011 Mikhail Yurasov
 */
 
 namespace ymF\Components;

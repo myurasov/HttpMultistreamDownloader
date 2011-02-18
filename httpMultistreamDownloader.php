@@ -1,11 +1,12 @@
 <?php
 
 /**
-* HTTP Multistream Downloader
-* 
-* @author Mikhail Yurasov <me@yurasov.me>
-* @copy Copyright (c) 2011 Mikhail Yurasov
-*/
+ * HTTP Multistream Downloader
+ *
+ * @author Mikhail Yurasov <me@yurasov.me>
+ * @copyright Copyright (c) 2011 Mikhail Yurasov
+ * @version 1.0a
+ */
 
 namespace ymF\Components;
 

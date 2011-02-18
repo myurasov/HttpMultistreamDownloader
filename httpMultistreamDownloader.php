@@ -21,6 +21,7 @@ class httpMultistreamDownloader
   private $doneBytes = 0;
   private $totalBytes;
   private $break = false;
+  private $progressCallbackTime = 0;
 
   private $url;
   private $outputFile;
@@ -28,6 +29,8 @@ class httpMultistreamDownloader
   private $maxChunkSize = 1048576;
   private $minChunkSize = 61440;
   private $progressCallback;
+  private $minCallbackPeriod = 1; // Minimum time between two callbacks
+  private $cookie;
 
   public function __construct()
   {
@@ -51,8 +54,7 @@ class httpMultistreamDownloader
       throw new Exception("Failed to open file \"{$this->outputFile}\"");
 
     // Get file size over HHTP
-    if (false === ($this->totalBytes = $this->_httpFileSize($this->url)))
-      throw new Exception("Failed to get file size of \"{$this->url}\"");
+    $this->totalBytes = $this->_httpFileSize($this->url);
 
     // Calculate desired chunk size
 
@@ -68,9 +70,14 @@ class httpMultistreamDownloader
       $curChunkLength = min($desiredChunkSize, $this->totalBytes - $desiredChunkSize * $i);
       $range = $curChunkOffset . '-' . ($curChunkOffset + $curChunkLength - 1);
       $ch = curl_init($this->url);
+
       curl_setopt($ch, \CURLOPT_WRITEFUNCTION, array($this, '_writeData'));
       curl_setopt($ch, \CURLOPT_HEADER, false);
       curl_setopt($ch, \CURLOPT_RANGE, $range);
+
+      if (!is_null($this->cookie))
+        curl_setopt ($ch, \CURLOPT_COOKIE, $this->cookie);
+
       $this->curlHandles[$i] = $ch;
       $this->writePositions[(string) $ch] = $curChunkOffset;
     }
@@ -102,6 +109,7 @@ class httpMultistreamDownloader
         (($curChunkIndex < $totalChunks)
         || ($runningChunks > 0)
         || ($chunksToAdd > 0))
+        && !$this->break
         && (usleep(10000) || true) // Sleep 10ms
       );
 
@@ -125,18 +133,27 @@ class httpMultistreamDownloader
     $this->doneBytes += $dataLength;
 
     if (!is_null($this->progressCallback))
-      if (false === call_user_func(
-        $this->progressCallback,
-        $this->doneBytes,
-        $this->totalBytes))
+    {
+      // Check time elapsed from last callback
+      if ((microtime(true) - $this->progressCallbackTime)
+        >= $this->minCallbackPeriod)
       {
-        $this->break = true;
-        return false;
+        if (false === call_user_func(
+          $this->progressCallback,
+          $this->doneBytes,
+          $this->totalBytes))
+        {
+          $this->break = true;
+          return false;
+        }
+
+        // Save last callback time
+        $this->progressCallbackTime = microtime(true);
       }
+    }
 
     return $dataLength;
   }
-
 
   /**
    * Release resources
@@ -156,15 +173,19 @@ class httpMultistreamDownloader
    * Get remote file size by http protocol
    *
    * @param string $url
-   * @return int On error returns FALSE
+   * @return int
    */
   private function _httpFileSize($url)
   {
     $ch = curl_init($url);
+
     curl_setopt($ch, \CURLOPT_NOBODY, true);
     curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, \CURLOPT_HEADER, true);
     curl_setopt($ch, \CURLOPT_FOLLOWLOCATION, true);
+
+    if (!is_null($this->cookie))
+      curl_setopt ($ch, \CURLOPT_COOKIE, $this->cookie);
 
     $data = curl_exec($ch);
     curl_close($ch);
@@ -176,13 +197,13 @@ class httpMultistreamDownloader
     $status = '';
 
     if (!preg_match('/^HTTP\/1\.[01] (\d)\d\d/', $data, $matches))
-      return false; // Can't get HTTP code
+      throw new Exception("Failed to get HTTP response code from \"$url\"");
 
     if ($matches[1] != '2')
-      return false; // Bad HTTP code
+      throw new Exception("Bad HTTP response: \"{$matches[0]}\" at \"$url\"");
 
     if (!preg_match('/Content-Length: (\d+)/', $data, $matches))
-      return false; // Cant't get content length
+      throw new Exception("Unable to get content length of \"$url\"");
 
     return (int)$matches[1];
   }
@@ -245,6 +266,11 @@ class httpMultistreamDownloader
       throw new Exception("Callback must be callable");
 
     $this->progressCallback = $progressCallback;
+  }
+
+  public function setCookie($cookie)
+  {
+    $this->cookie = $cookie;
   }
 
   // </editor-fold>

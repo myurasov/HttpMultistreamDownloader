@@ -1,5 +1,11 @@
 <?php
 
+/**
+* HTTP Multistream Downloader
+* 
+* @copy Copyright Mikhail Yiurasov <me@yurasov.me> 2011
+*/
+
 namespace ymF\Components;
 
 use Exception;

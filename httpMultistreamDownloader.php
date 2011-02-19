@@ -42,11 +42,6 @@ class httpMultistreamDownloader
 
   public function __destruct()
   {
-    foreach ($this->curlHandles as $ch)
-    {
-      echo \curl_error($ch) . "\n";
-    }
-
     // Release resources
     $this->_cleanup();
   }

@@ -252,6 +252,9 @@ class httpMultistreamDownloader
   public function setMaxChunkSize($maxChunkSize)
   {
     $this->maxChunkSize = $maxChunkSize;
+
+    if ($this->maxChunkSize < $this->minChunkSize)
+      $this->minChunkSize = $this->maxChunkSize;
   }
 
   public function setMinCallbackPeriod($minCallbackPeriod)
@@ -267,6 +270,9 @@ class httpMultistreamDownloader
   public function setMinChunkSize($minChunkSize)
   {
     $this->minChunkSize = $minChunkSize;
+
+    if ($this->minChunkSize > $this->maxChunkSize)
+      $this->maxChunkSize = $minChunkSize;
   }
 
   public function setMaxRedirs($maxRedirs)

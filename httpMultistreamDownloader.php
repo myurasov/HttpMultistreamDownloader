@@ -5,7 +5,7 @@
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov
- * @version 1.0a
+ * @version 1.0b
  */
 
 namespace ymF\Components;

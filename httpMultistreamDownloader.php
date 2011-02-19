@@ -61,7 +61,7 @@ class httpMultistreamDownloader
       throw new Exception("Failed to open file \"{$this->outputFile}\"");
 
     // Get file size over HHTP
-    $this->totalBytes = \ymF\Utils\Filesystem::httpFileSize(
+    $this->totalBytes = $this->_httpFileSize(
       $this->url, $this->effectiveUrl, $this->maxRedirs, $this->cookie);
     
     if (false === $this->totalBytes)
@@ -124,6 +124,52 @@ class httpMultistreamDownloader
 
     // Release resources
     $this->_cleanup();
+  }
+
+  /**
+   * Get remote file size by http protocol
+   *
+   * @param string $url
+   * @param string &$effectiveUrl
+   * @param int $maxRedirs
+   * @param string $cookie
+   * @return int On error returns FALSE
+   */
+  private function _httpFileSize(
+    $url,
+    &$effectiveUrl = null,
+    $maxRedirs = 20,
+    $cookie = null)
+  {
+    $ch = curl_init($url);
+
+    curl_setopt($ch, \CURLOPT_NOBODY, true);
+    curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, \CURLOPT_HEADER, true);
+    curl_setopt($ch, \CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, \CURLOPT_MAXREDIRS, $maxRedirs);
+    curl_setopt($ch, \CURLOPT_COOKIE, $cookie);
+
+    $data = curl_exec($ch);
+    $effectiveUrl = curl_getinfo($ch, \CURLINFO_EFFECTIVE_URL);
+    $httpCode = curl_getinfo($ch, \CURLINFO_HTTP_CODE);
+    $redirects = curl_getinfo($ch, \CURLINFO_REDIRECT_COUNT);
+    curl_close($ch);
+
+    // Check HTTP response code
+    if (substr((string)$httpCode, 0, 1) != 2)
+      return false; // Bad HTTP response code
+
+    // Get last response
+    $matches = preg_split('/^HTTP/m', $data);
+    $data = array_pop($matches);
+
+    // Get content length
+    $matches = array();
+    if (!preg_match('/Content-Length: (\d+)/', $data, $matches))
+      return false; // Can't get conntent length
+
+    return (int) $matches[1];
   }
 
   /**

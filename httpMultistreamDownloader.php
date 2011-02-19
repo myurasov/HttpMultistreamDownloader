@@ -28,9 +28,11 @@ class httpMultistreamDownloader
   private $maxParallelChunks = 10;
   private $maxChunkSize = 1048576;
   private $minChunkSize = 61440;
+  private $maxRedirs = 20;
   private $progressCallback;
   private $minCallbackPeriod = 1; // Minimum time between two callbacks
   private $cookie;
+  private $effectiveUrl = '';
 
   public function __construct()
   {
@@ -40,6 +42,11 @@ class httpMultistreamDownloader
 
   public function __destruct()
   {
+    foreach ($this->curlHandles as $ch)
+    {
+      echo \curl_error($ch) . "\n";
+    }
+
     // Release resources
     $this->_cleanup();
   }
@@ -54,7 +61,11 @@ class httpMultistreamDownloader
       throw new Exception("Failed to open file \"{$this->outputFile}\"");
 
     // Get file size over HHTP
-    $this->totalBytes = $this->_httpFileSize($this->url);
+    $this->totalBytes = \ymF\Utils\Filesystem::httpFileSize(
+      $this->url, $this->effectiveUrl, $this->maxRedirs, $this->cookie);
+    
+    if (false === $this->totalBytes)
+      throw new Exception("Unable to get file size of \"$this->url\"");
 
     // Calculate desired chunk size
 
@@ -69,14 +80,12 @@ class httpMultistreamDownloader
       $curChunkOffset = $i * $desiredChunkSize;
       $curChunkLength = min($desiredChunkSize, $this->totalBytes - $desiredChunkSize * $i);
       $range = $curChunkOffset . '-' . ($curChunkOffset + $curChunkLength - 1);
-      $ch = curl_init($this->url);
+      $ch = curl_init($this->effectiveUrl);
 
       curl_setopt($ch, \CURLOPT_WRITEFUNCTION, array($this, '_writeData'));
       curl_setopt($ch, \CURLOPT_HEADER, false);
       curl_setopt($ch, \CURLOPT_RANGE, $range);
-
-      if (!is_null($this->cookie))
-        curl_setopt ($ch, \CURLOPT_COOKIE, $this->cookie);
+      curl_setopt ($ch, \CURLOPT_COOKIE, $this->cookie);
 
       $this->curlHandles[$i] = $ch;
       $this->writePositions[(string) $ch] = $curChunkOffset;
@@ -86,13 +95,13 @@ class httpMultistreamDownloader
 
     $runningChunks = 0;
     $curChunkIndex = 0;
-    $this->maxParallelChunks = min($this->maxParallelChunks, $totalChunks);
+    $maxParallelChunks = min($this->maxParallelChunks, $totalChunks);
     $this->curlMultiHandle = curl_multi_init();
 
     do
     {
       $chunksToAdd = min(
-          $this->maxParallelChunks - $runningChunks,
+          $maxParallelChunks - $runningChunks,
           $totalChunks - $curChunkIndex);
 
       // Add chunks to request
@@ -169,96 +178,7 @@ class httpMultistreamDownloader
     $this->curlMultiHandle = $this->outputFileHandle = null;
   }
 
-  /**
-   * Get remote file size by http protocol
-   *
-   * @param string $url
-   * @return int
-   */
-  private function _httpFileSize($url)
-  {
-    $ch = curl_init($url);
-
-    curl_setopt($ch, \CURLOPT_NOBODY, true);
-    curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, \CURLOPT_HEADER, true);
-    curl_setopt($ch, \CURLOPT_FOLLOWLOCATION, true);
-
-    if (!is_null($this->cookie))
-      curl_setopt ($ch, \CURLOPT_COOKIE, $this->cookie);
-
-    $data = curl_exec($ch);
-    curl_close($ch);
-
-    if ($data === false)
-      return false;
-
-    $contentLength = '';
-    $status = '';
-
-    if (!preg_match('/^HTTP\/1\.[01] (\d)\d\d/', $data, $matches))
-      throw new Exception("Failed to get HTTP response code from \"$url\"");
-
-    if ($matches[1] != '2')
-      throw new Exception("Bad HTTP response: \"{$matches[0]}\" at \"$url\"");
-
-    if (!preg_match('/Content-Length: (\d+)/', $data, $matches))
-      throw new Exception("Unable to get content length of \"$url\"");
-
-    return (int)$matches[1];
-  }
-
   // <editor-fold desc="Getters and setters">
-
-  public function getUrl()
-  {
-    return $this->url;
-  }
-
-  public function setUrl($url)
-  {
-    $this->url = $url;
-  }
-
-  public function getMaxParallelChunks()
-  {
-    return $this->maxParallelChunks;
-  }
-
-  public function setMaxParallelChunks($maxParallelChunks)
-  {
-    $this->maxParallelChunks = $maxParallelChunks;
-  }
-
-  public function getMaxChunbkSize()
-  {
-    return $this->maxChunbkSize;
-  }
-
-  public function setMaxChunbkSize($maxChunbkSize)
-  {
-    $this->maxChunbkSize = $maxChunbkSize;
-  }
-
-  public function getMinChunkSize()
-  {
-    return $this->minChunkSize;
-  }
-
-  public function setMinChunkSize($minChunkSize)
-  {
-    $this->minChunkSize = $minChunkSize;
-  }
-
-  public function getOutputFile()
-  {
-    return $this->outputFile;
-  }
-
-  public function setOutputFile($outputFile)
-  {
-    $this->outputFile = $outputFile;
-  }
 
   public function setProgressCallback($progressCallback)
   {
@@ -268,9 +188,54 @@ class httpMultistreamDownloader
     $this->progressCallback = $progressCallback;
   }
 
+  public function setProgressCallbackTime($progressCallbackTime)
+  {
+    $this->progressCallbackTime = $progressCallbackTime;
+  }
+
+  public function setUrl($url)
+  {
+    $this->url = $url;
+  }
+
+  public function setOutputFile($outputFile)
+  {
+    $this->outputFile = $outputFile;
+  }
+
+  public function setMaxParallelChunks($maxParallelChunks)
+  {
+    $this->maxParallelChunks = $maxParallelChunks;
+  }
+
+  public function setMaxChunkSize($maxChunkSize)
+  {
+    $this->maxChunkSize = $maxChunkSize;
+  }
+
+  public function setMinCallbackPeriod($minCallbackPeriod)
+  {
+    $this->minCallbackPeriod = $minCallbackPeriod;
+  }
+
   public function setCookie($cookie)
   {
     $this->cookie = $cookie;
+  }
+
+  public function setMinChunkSize($minChunkSize)
+  {
+    $this->minChunkSize = $minChunkSize;
+  }
+
+  public function setMaxRedirs($maxRedirs)
+  {
+    $this->maxRedirs = $maxRedirs;
+  }
+
+  public function getEffectiveUrl()
+  {
+    return $this->effectiveUrl;
   }
 
   // </editor-fold>

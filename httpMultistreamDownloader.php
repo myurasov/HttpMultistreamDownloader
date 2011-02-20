@@ -23,7 +23,6 @@ class httpMultistreamDownloader
   private $break = false;
   private $lastProgressCallbackTime = 0;
   private $chunkIndex = 0;
-  private $runningChunks;
 
   private $url;
   private $outputFile;
@@ -36,6 +35,7 @@ class httpMultistreamDownloader
   private $effectiveUrl = '';
   private $networkTimeout = 60; // [sec]
   private $debugMode = false;
+  private $runningChunks;
 
   public function __construct()
   {

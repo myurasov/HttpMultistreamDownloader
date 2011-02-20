@@ -5,7 +5,7 @@
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov
- * @version 1.0b
+ * @version 1.0c
  */
 
 namespace ymF\Components;
@@ -21,18 +21,17 @@ class httpMultistreamDownloader
   private $doneBytes = 0;
   private $totalBytes;
   private $break = false;
-  private $progressCallbackTime = 0;
 
   private $url;
   private $outputFile;
-  private $maxParallelChunks = 10;
-  private $maxChunkSize = 1048576;
-  private $minChunkSize = 61440;
+  private $parallelChunks = 10;
+  private $chunkSize = 1048576;
   private $maxRedirs = 20;
   private $progressCallback;
-  private $minCallbackPeriod = 1; // Minimum time between two callbacks
+  private $minCallbackPeriod = 1; // Minimum time between two callbacks [sec]
   private $cookie;
   private $effectiveUrl = '';
+  private $networkTimeout = 10; // [sec]
 
   public function __construct()
   {
@@ -48,77 +47,100 @@ class httpMultistreamDownloader
 
   /**
    * Download file
+   *
+   * @return int
    */
   public function download()
+  {
+    try
+    {
+      $this->_download();
+    }
+    catch (Exception $e)
+    {
+      $this->_cleanup();
+      throw $e;
+    }
+
+    $this->_cleanup();
+    return $this->doneBytes;
+  }
+
+  /**
+   * Download file
+   */
+  public function _download()
   {
     // Open output file for writing
     if (false === ($this->outputFileHandle = fopen($this->outputFile, 'w')))
       throw new Exception("Failed to open file \"{$this->outputFile}\"");
 
-    // Get file size over HHTP
-    $this->totalBytes = $this->_httpFileSize(
-      $this->url, $this->effectiveUrl, $this->maxRedirs, $this->cookie);
-    
-    if (false === $this->totalBytes)
-      throw new Exception("Unable to get file size of \"$this->url\"");
+    // Get file size
+    $this->totalBytes = $this->getTotalBytes();
 
-    // Calculate desired chunk size
+    // Calculate total number of chunks
+    $totalChunks = (int) ceil($this->totalBytes / $this->chunkSize);
 
-    $desiredChunkSize = min(ceil($this->totalBytes / $this->maxParallelChunks), $this->maxChunkSize);
-    $desiredChunkSize = max($desiredChunkSize, $this->minChunkSize);
-    $totalChunks = ceil($this->totalBytes / $desiredChunkSize);
-
-    // Allocate chunks
-
-    for ($i = 0; $i < $totalChunks; $i++)
-    {
-      $curChunkOffset = $i * $desiredChunkSize;
-      $curChunkLength = min($desiredChunkSize, $this->totalBytes - $desiredChunkSize * $i);
-      $range = $curChunkOffset . '-' . ($curChunkOffset + $curChunkLength - 1);
-      $ch = curl_init($this->effectiveUrl);
-
-      curl_setopt($ch, \CURLOPT_WRITEFUNCTION, array($this, '_writeData'));
-      curl_setopt($ch, \CURLOPT_HEADER, false);
-      curl_setopt($ch, \CURLOPT_RANGE, $range);
-      curl_setopt ($ch, \CURLOPT_COOKIE, $this->cookie);
-
-      $this->curlHandles[$i] = $ch;
-      $this->writePositions[(string) $ch] = $curChunkOffset;
-    }
-
-    // Execute chunks
+    // Process chunks
 
     $runningChunks = 0;
-    $curChunkIndex = 0;
-    $maxParallelChunks = min($this->maxParallelChunks, $totalChunks);
+    $chunksLeft = $totalChunks;
+    $this->parallelChunks = min($this->parallelChunks, $totalChunks);
     $this->curlMultiHandle = curl_multi_init();
 
-    do
+    while (($runningChunks || $chunksLeft) && !$this->break)
     {
-      $chunksToAdd = min(
-          $maxParallelChunks - $runningChunks,
-          $totalChunks - $curChunkIndex);
-
       // Add chunks to request
+      
+      $chunksToAdd = min($this->parallelChunks - $runningChunks, $chunksLeft);
+      $chunksLeft -= $chunksToAdd;
+
       for ($i = 0; $i < $chunksToAdd; $i++)
+        curl_multi_add_handle($this->curlMultiHandle,
+          $this->_allocateChunk());
+
+      // Release funished curl handles
+      
+      do
       {
-        $ch = $this->curlHandles[$curChunkIndex];
-        curl_multi_add_handle($this->curlMultiHandle, $ch);
-        $curChunkIndex++;
+        $curlMessages = 0;
+        $curlInfo = curl_multi_info_read($this->curlMultiHandle, $curlMessages);
+
+        if ($curlInfo !== false)
+        {
+          if ($curlInfo['result'] != \CURLE_OK)
+          {
+            throw new Exception("Transfer error");
+          }
+          else
+          {
+            curl_multi_remove_handle($this->curlMultiHandle, $curlInfo['handle']);
+            unset($this->curlHandles[(string) $curlInfo['handle']]);
+            unset($this->writePositions[(string) $curlInfo['handle']]);
+            curl_close($curlInfo['handle']);
+          }
+        }
       }
+      while ($curlMessages);
 
+      // Excecute curl multi handle
+      
       curl_multi_exec($this->curlMultiHandle, $runningChunks);
-    }
-    while (
-        (($curChunkIndex < $totalChunks)
-        || ($runningChunks > 0)
-        || ($chunksToAdd > 0))
-        && !$this->break
-        && (usleep(10000) || true) // Sleep 10ms
-      );
+      $curlActivity = curl_multi_select($this->curlMultiHandle);
 
-    // Release resources
-    $this->_cleanup();
+      // Check for network timeout
+      
+      if ($curlActivity == 0 && ($runningChunks || $chunksLeft))
+      {
+        $timeStalled = microtime(true);
+
+        while (curl_multi_select($this->curlMultiHandle) == 0)
+        {
+          if (microtime(true) - $timeStalled > $this->networkTimeout)
+            throw new Exception("Network timeout");
+        }
+      }
+    }
   }
 
   /**
@@ -146,25 +168,47 @@ class httpMultistreamDownloader
     curl_setopt($ch, \CURLOPT_COOKIE, $cookie);
 
     $data = curl_exec($ch);
+    $contentLenght = curl_getinfo($ch, \CURLINFO_CONTENT_LENGTH_DOWNLOAD);
     $effectiveUrl = curl_getinfo($ch, \CURLINFO_EFFECTIVE_URL);
     $httpCode = curl_getinfo($ch, \CURLINFO_HTTP_CODE);
-    $redirects = curl_getinfo($ch, \CURLINFO_REDIRECT_COUNT);
     curl_close($ch);
 
     // Check HTTP response code
     if (substr((string)$httpCode, 0, 1) != 2)
       return false; // Bad HTTP response code
 
-    // Get last response
-    $matches = preg_split('/^HTTP/m', $data);
-    $data = array_pop($matches);
+    if ($contentLenght < 0)
+      return false; // Can't get content length
 
-    // Get content length
-    $matches = array();
-    if (!preg_match('/Content-Length: (\d+)/', $data, $matches))
-      return false; // Can't get conntent length
+    return $contentLenght;
+  }
 
-    return (int) $matches[1];
+  /**
+   * Allocate chunk
+   * 
+   * @staticvar int $chunkIndex
+   * @return resource
+   */
+  private function _allocateChunk()
+  {
+    static $chunkIndex = 0;
+    
+    $curChunkOffset = $chunkIndex * $this->chunkSize;
+    $curChunkLength = min($this->chunkSize,
+      $this->totalBytes - $this->chunkSize * $chunkIndex);
+    $range = $curChunkOffset . '-' . ($curChunkOffset + $curChunkLength - 1);
+
+    $ch = curl_init($this->effectiveUrl);
+    curl_setopt($ch, \CURLOPT_WRITEFUNCTION, array($this, '_writeData'));
+    curl_setopt($ch, \CURLOPT_HEADER, false);
+    curl_setopt($ch, \CURLOPT_RANGE, $range);
+    curl_setopt($ch, \CURLOPT_COOKIE, $this->cookie);
+
+    $this->curlHandles[(string) $ch] = $ch;
+    $this->writePositions[(string) $ch] = $curChunkOffset;
+    $chunkIndex++;
+
+    return $ch;
   }
 
   /**
@@ -176,16 +220,17 @@ class httpMultistreamDownloader
    */
   public function _writeData($curlHandle, $data)
   {
-    $dataLength = strlen($data);
+    static $lastCallbackTime = 0;
+
     fseek($this->outputFileHandle, $this->writePositions[(string) $curlHandle]);
-    fwrite($this->outputFileHandle, $data);
+    $dataLength = fwrite($this->outputFileHandle, $data);
     $this->writePositions[(string) $curlHandle] += $dataLength;
     $this->doneBytes += $dataLength;
 
     if (!is_null($this->progressCallback))
     {
       // Check time elapsed from last callback
-      if ((microtime(true) - $this->progressCallbackTime)
+      if ((microtime(true) - $lastCallbackTime)
         >= $this->minCallbackPeriod)
       {
         if (false === call_user_func(
@@ -198,7 +243,7 @@ class httpMultistreamDownloader
         }
 
         // Save last callback time
-        $this->progressCallbackTime = microtime(true);
+        $lastCallbackTime = microtime(true);
       }
     }
 
@@ -210,12 +255,23 @@ class httpMultistreamDownloader
    */
   private function _cleanup()
   {
+    // Release left curl handles
+    foreach ($this->curlHandles as $key => $ch)
+    {
+      curl_multi_remove_handle($this->curlMultiHandle, $ch);
+      curl_close($ch);
+      unset($this->curlHandles[$key]);
+    }
+
+    // Release curl multi handle
     if (!is_null($this->curlMultiHandle))
       curl_multi_close($this->curlMultiHandle);
 
+    // Close output file
     if (!is_null($this->outputFileHandle))
       fclose($this->outputFileHandle);
 
+    // Set handles to null
     $this->curlMultiHandle = $this->outputFileHandle = null;
   }
 
@@ -244,17 +300,9 @@ class httpMultistreamDownloader
     $this->outputFile = $outputFile;
   }
 
-  public function setMaxParallelChunks($maxParallelChunks)
+  public function setParallelChunks($parallelChunks)
   {
-    $this->maxParallelChunks = $maxParallelChunks;
-  }
-
-  public function setMaxChunkSize($maxChunkSize)
-  {
-    $this->maxChunkSize = $maxChunkSize;
-
-    if ($this->maxChunkSize < $this->minChunkSize)
-      $this->minChunkSize = $this->maxChunkSize;
+    $this->parallelChunks = $parallelChunks;
   }
 
   public function setMinCallbackPeriod($minCallbackPeriod)
@@ -267,14 +315,6 @@ class httpMultistreamDownloader
     $this->cookie = $cookie;
   }
 
-  public function setMinChunkSize($minChunkSize)
-  {
-    $this->minChunkSize = $minChunkSize;
-
-    if ($this->minChunkSize > $this->maxChunkSize)
-      $this->maxChunkSize = $minChunkSize;
-  }
-
   public function setMaxRedirs($maxRedirs)
   {
     $this->maxRedirs = $maxRedirs;
@@ -283,6 +323,29 @@ class httpMultistreamDownloader
   public function getEffectiveUrl()
   {
     return $this->effectiveUrl;
+  }
+
+  public function setChunkSize($chunkSize)
+  {
+    $this->chunkSize = $chunkSize;
+  }
+
+  public function setNetworkTimeout($networkTimeout)
+  {
+    $this->networkTimeout = $networkTimeout;
+  }
+
+  public function getTotalBytes()
+  {
+    if (is_null($this->totalBytes))
+    {
+      // Get file size over HHTP
+      if (false === ($this->totalBytes = $this->_httpFileSize(
+          $this->url, $this->effectiveUrl, $this->maxRedirs, $this->cookie)))
+        throw new Exception("Unable to get file size of \"$this->url\"");
+    }
+    
+    return $this->totalBytes;
   }
 
   // </editor-fold>

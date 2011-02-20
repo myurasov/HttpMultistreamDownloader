@@ -33,7 +33,8 @@ class httpMultistreamDownloader
   private $minCallbackPeriod = 1; // Minimum time between two callbacks [sec]
   private $cookie;
   private $effectiveUrl = '';
-  private $networkTimeout = 10; // [sec]
+  private $networkTimeout = 60; // [sec]
+  private $debugMode = false;
 
   public function __construct()
   {
@@ -50,7 +51,7 @@ class httpMultistreamDownloader
   /**
    * Download file
    *
-   * @return int
+   * @return int Bytes received
    */
   public function download()
   {
@@ -196,7 +197,8 @@ class httpMultistreamDownloader
       \CURLOPT_CONNECTTIMEOUT => $this->networkTimeout,
       \CURLOPT_LOW_SPEED_TIME => $this->networkTimeout,
       \CURLOPT_LOW_SPEED_LIMIT => 1,
-      \CURLOPT_COOKIE => $this->cookie
+      \CURLOPT_COOKIE => $this->cookie,
+      \CURLOPT_VERBOSE => $this->debugMode
     ));
 
     $this->curlHandles[(string) $ch] = $ch;
@@ -339,6 +341,11 @@ class httpMultistreamDownloader
     }
     
     return $this->totalBytes;
+  }
+
+  public function setDebugMode($debugMode)
+  {
+    $this->debugMode = $debugMode;
   }
 
   // </editor-fold>

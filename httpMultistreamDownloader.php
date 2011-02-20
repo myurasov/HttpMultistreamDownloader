@@ -35,7 +35,7 @@ class httpMultistreamDownloader
   private $effectiveUrl = '';
   private $networkTimeout = 60; // [sec]
   private $debugMode = false;
-  private $runningChunks;
+  private $runningChunks = 0;
 
   public function __construct()
   {

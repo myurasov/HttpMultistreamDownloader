@@ -275,7 +275,7 @@ class httpMultistreamDownloader
 
   public function setProgressCallback($progressCallback)
   {
-    if (!is_callable($progressCallback))
+    if (!is_callable($progressCallback) && !is_null($progressCallback))
       throw new Exception("Callback must be callable");
 
     $this->progressCallback = $progressCallback;

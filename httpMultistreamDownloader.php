@@ -5,7 +5,7 @@
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov
- * @version 1.0
+ * @version 1.0.2
  */
 
 namespace ymF\Components;
@@ -23,10 +23,11 @@ class httpMultistreamDownloader
   private $break = false;
   private $lastProgressCallbackTime = 0;
   private $chunkIndex = 0;
+  private $runningChunks;
 
   private $url;
   private $outputFile;
-  private $parallelChunks = 10;
+  private $maxParallelChunks = 10;
   private $chunkSize = 1048576;
   private $maxRedirs = 20;
   private $progressCallback;
@@ -86,17 +87,17 @@ class httpMultistreamDownloader
 
     // Process chunks
 
-    $runningChunks = 0;
+    $this->runningChunks = 0;
     $chunksLeft = $totalChunks;
-    $this->parallelChunks = min($this->parallelChunks, $totalChunks);
+    $this->maxParallelChunks = min($this->maxParallelChunks, $totalChunks);
     $this->curlMultiHandle = curl_multi_init();
     $curlSelectTimeout = min(1, $this->networkTimeout);
     
-    while (($runningChunks || $chunksLeft) && !$this->break)
+    while (($this->runningChunks || $chunksLeft) && !$this->break)
     {
       // Add chunks to request
       
-      $chunksToAdd = min($this->parallelChunks - $runningChunks, $chunksLeft);
+      $chunksToAdd = min($this->maxParallelChunks - $this->runningChunks, $chunksLeft);
       $chunksLeft -= $chunksToAdd;
 
       for ($i = 0; $i < $chunksToAdd; $i++)
@@ -126,8 +127,8 @@ class httpMultistreamDownloader
 
       // Excecute curl multi handle
       
-      curl_multi_exec($this->curlMultiHandle, $runningChunks);
-      $curlActivity = curl_multi_select($this->curlMultiHandle, $curlSelectTimeout);
+      curl_multi_exec($this->curlMultiHandle, $this->runningChunks);
+      curl_multi_select($this->curlMultiHandle, $curlSelectTimeout);
     }
   }
 
@@ -295,11 +296,6 @@ class httpMultistreamDownloader
     $this->outputFile = $outputFile;
   }
 
-  public function setParallelChunks($parallelChunks)
-  {
-    $this->parallelChunks = $parallelChunks;
-  }
-
   public function setMinCallbackPeriod($minCallbackPeriod)
   {
     $this->minCallbackPeriod = $minCallbackPeriod;
@@ -346,6 +342,16 @@ class httpMultistreamDownloader
   public function setDebugMode($debugMode)
   {
     $this->debugMode = $debugMode;
+  }
+
+  public function getRunningChunks()
+  {
+    return $this->runningChunks;
+  }
+
+  public function setMaxParallelChunks($maxParallelChunks)
+  {
+    $this->maxParallelChunks = $maxParallelChunks;
   }
 
   // </editor-fold>

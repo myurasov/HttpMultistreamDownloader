@@ -5,7 +5,7 @@
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov
- * @version 1.0c
+ * @version 1.0
  */
 
 namespace ymF\Components;
@@ -21,6 +21,8 @@ class httpMultistreamDownloader
   private $doneBytes = 0;
   private $totalBytes;
   private $break = false;
+  private $lastProgressCallbackTime = 0;
+  private $chunkIndex = 0;
 
   private $url;
   private $outputFile;
@@ -69,14 +71,14 @@ class httpMultistreamDownloader
   /**
    * Download file
    */
-  public function _download()
+  private function _download()
   {
     // Open output file for writing
-    if (false === ($this->outputFileHandle = fopen($this->outputFile, 'w')))
+    if (false === ($this->outputFileHandle = @fopen($this->outputFile, 'w')))
       throw new Exception("Failed to open file \"{$this->outputFile}\"");
 
     // Get file size
-    $this->totalBytes = $this->getTotalBytes();
+    $this->getTotalBytes();
 
     // Calculate total number of chunks
     $totalChunks = (int) ceil($this->totalBytes / $this->chunkSize);
@@ -87,7 +89,8 @@ class httpMultistreamDownloader
     $chunksLeft = $totalChunks;
     $this->parallelChunks = min($this->parallelChunks, $totalChunks);
     $this->curlMultiHandle = curl_multi_init();
-
+    $curlSelectTimeout = min(1, $this->networkTimeout);
+    
     while (($runningChunks || $chunksLeft) && !$this->break)
     {
       // Add chunks to request
@@ -108,17 +111,14 @@ class httpMultistreamDownloader
 
         if ($curlInfo !== false)
         {
-          if ($curlInfo['result'] != \CURLE_OK)
-          {
-            throw new Exception("Transfer error");
-          }
-          else
+          if ($curlInfo['result'] == \CURLE_OK)
           {
             curl_multi_remove_handle($this->curlMultiHandle, $curlInfo['handle']);
             unset($this->curlHandles[(string) $curlInfo['handle']]);
             unset($this->writePositions[(string) $curlInfo['handle']]);
             curl_close($curlInfo['handle']);
           }
+          else throw new Exception("Transfer error: " . curl_error($curlInfo['handle']));
         }
       }
       while ($curlMessages);
@@ -126,20 +126,7 @@ class httpMultistreamDownloader
       // Excecute curl multi handle
       
       curl_multi_exec($this->curlMultiHandle, $runningChunks);
-      $curlActivity = curl_multi_select($this->curlMultiHandle);
-
-      // Check for network timeout
-      
-      if ($curlActivity == 0 && ($runningChunks || $chunksLeft))
-      {
-        $timeStalled = microtime(true);
-
-        while (curl_multi_select($this->curlMultiHandle) == 0)
-        {
-          if (microtime(true) - $timeStalled > $this->networkTimeout)
-            throw new Exception("Network timeout");
-        }
-      }
+      $curlActivity = curl_multi_select($this->curlMultiHandle, $curlSelectTimeout);
     }
   }
 
@@ -160,12 +147,17 @@ class httpMultistreamDownloader
   {
     $ch = curl_init($url);
 
-    curl_setopt($ch, \CURLOPT_NOBODY, true);
-    curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, \CURLOPT_HEADER, true);
-    curl_setopt($ch, \CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt($ch, \CURLOPT_MAXREDIRS, $maxRedirs);
-    curl_setopt($ch, \CURLOPT_COOKIE, $cookie);
+    curl_setopt_array($ch, array(
+      \CURLOPT_NOBODY => true,
+      \CURLOPT_RETURNTRANSFER => true,
+      \CURLOPT_HEADER => true,
+      \CURLOPT_FOLLOWLOCATION => true,
+      \CURLOPT_MAXREDIRS => $maxRedirs,
+      \CURLOPT_COOKIE => $cookie,
+      \CURLOPT_CONNECTTIMEOUT => $this->networkTimeout,
+      \CURLOPT_LOW_SPEED_TIME => $this->networkTimeout,
+      \CURLOPT_LOW_SPEED_LIMIT => 1
+    ));
 
     $data = curl_exec($ch);
     $contentLenght = curl_getinfo($ch, \CURLINFO_CONTENT_LENGTH_DOWNLOAD);
@@ -186,27 +178,30 @@ class httpMultistreamDownloader
   /**
    * Allocate chunk
    * 
-   * @staticvar int $chunkIndex
    * @return resource
    */
   private function _allocateChunk()
   {
-    static $chunkIndex = 0;
-    
-    $curChunkOffset = $chunkIndex * $this->chunkSize;
+    $curChunkOffset = $this->chunkIndex * $this->chunkSize;
     $curChunkLength = min($this->chunkSize,
-      $this->totalBytes - $this->chunkSize * $chunkIndex);
+      $this->totalBytes - $this->chunkSize * $this->chunkIndex);
     $range = $curChunkOffset . '-' . ($curChunkOffset + $curChunkLength - 1);
 
     $ch = curl_init($this->effectiveUrl);
-    curl_setopt($ch, \CURLOPT_WRITEFUNCTION, array($this, '_writeData'));
-    curl_setopt($ch, \CURLOPT_HEADER, false);
-    curl_setopt($ch, \CURLOPT_RANGE, $range);
-    curl_setopt($ch, \CURLOPT_COOKIE, $this->cookie);
+    
+    curl_setopt_array($ch, array(
+      \CURLOPT_WRITEFUNCTION => array($this, '_writeData'),
+      \CURLOPT_HEADER => false,
+      \CURLOPT_RANGE => $range,
+      \CURLOPT_CONNECTTIMEOUT => $this->networkTimeout,
+      \CURLOPT_LOW_SPEED_TIME => $this->networkTimeout,
+      \CURLOPT_LOW_SPEED_LIMIT => 1,
+      \CURLOPT_COOKIE => $this->cookie
+    ));
 
     $this->curlHandles[(string) $ch] = $ch;
     $this->writePositions[(string) $ch] = $curChunkOffset;
-    $chunkIndex++;
+    $this->chunkIndex++;
 
     return $ch;
   }
@@ -220,8 +215,6 @@ class httpMultistreamDownloader
    */
   private function _writeData($curlHandle, $data)
   {
-    static $lastCallbackTime = 0;
-
     fseek($this->outputFileHandle, $this->writePositions[(string) $curlHandle]);
     $dataLength = fwrite($this->outputFileHandle, $data);
     $this->writePositions[(string) $curlHandle] += $dataLength;
@@ -230,7 +223,7 @@ class httpMultistreamDownloader
     if (!is_null($this->progressCallback))
     {
       // Check time elapsed from last callback
-      if ((microtime(true) - $lastCallbackTime)
+      if ((microtime(true) - $this->lastProgressCallbackTime)
         >= $this->minCallbackPeriod)
       {
         if (false === call_user_func(
@@ -243,7 +236,7 @@ class httpMultistreamDownloader
         }
 
         // Save last callback time
-        $lastCallbackTime = microtime(true);
+        $this->lastProgressCallbackTime = microtime(true);
       }
     }
 
@@ -269,7 +262,7 @@ class httpMultistreamDownloader
 
     // Close output file
     if (!is_null($this->outputFileHandle))
-      fclose($this->outputFileHandle);
+      @fclose($this->outputFileHandle);
 
     // Set handles to null
     $this->curlMultiHandle = $this->outputFileHandle = null;
@@ -327,7 +320,7 @@ class httpMultistreamDownloader
 
   public function setChunkSize($chunkSize)
   {
-    $this->chunkSize = $chunkSize;
+    $this->chunkSize = (int) $chunkSize;
   }
 
   public function setNetworkTimeout($networkTimeout)

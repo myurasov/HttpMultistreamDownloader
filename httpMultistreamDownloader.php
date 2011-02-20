@@ -218,7 +218,7 @@ class httpMultistreamDownloader
    * @param string $data
    * @return int Length of data written or FALSE on user request to break
    */
-  public function _writeData($curlHandle, $data)
+  private function _writeData($curlHandle, $data)
   {
     static $lastCallbackTime = 0;
 

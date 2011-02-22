@@ -19,7 +19,6 @@ $downloader->setOutputFile($outputFile);
 $downloader->setMinCallbackPeriod(3);
 $downloader->setMaxParallelChunks(30);
 $downloader->setChunkSize(1024 * 1024);
-$downloader->setDebugMode(true);;
 
 $downloader->setProgressCallback(function($position, $totalBytes) use ($downloader)
   {

@@ -32,7 +32,7 @@ class Downloader
   private $progressCallback;
   private $minCallbackPeriod = 1; // Minimum time between two callbacks [sec]
   private $cookie;
-  private $networkTimeout = 60; // [sec]
+  private $networkTimeout = 60;   // [sec]
   private $debugMode = false;
   private $runningChunks = 0;
 
@@ -81,7 +81,7 @@ class Downloader
       throw new Exception("Failed to open file \"{$this->outputFile}\"");
 
     // Get file size
-    $this->getTotalBytes();
+    $this->totalBytes = $this->getTotalBytes();
 
     // Calculate total number of chunks
     $totalChunks = (int) ceil($this->totalBytes / $this->chunkSize);

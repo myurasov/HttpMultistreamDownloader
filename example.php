@@ -1,7 +1,7 @@
 <?php
 
 /**
- * httpMultistreamDownloader example
+ * HttpMultistreamDownloader example
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov

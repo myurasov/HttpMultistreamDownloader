@@ -5,14 +5,14 @@
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov
- * @version 1.0.3
+ * @version 1.0.4
  */
 
-namespace ymF\Components;
+namespace ymF\Component\httpMultistreamDownloader;
 
 use Exception;
 
-class httpMultistreamDownloader
+class Downloader
 {
   private $curlMultiHandle;
   private $outputFileHandle;
@@ -32,15 +32,16 @@ class httpMultistreamDownloader
   private $progressCallback;
   private $minCallbackPeriod = 1; // Minimum time between two callbacks [sec]
   private $cookie;
-  private $effectiveUrl = '';
   private $networkTimeout = 60; // [sec]
   private $debugMode = false;
   private $runningChunks = 0;
 
-  public function __construct()
+  public function __construct($url)
   {
     if (!extension_loaded('curl'))
       throw new Exception('cURL extension is not loaded');
+
+    $this->url = $url;
   }
 
   public function __destruct()
@@ -136,14 +137,12 @@ class httpMultistreamDownloader
    * Get remote file size by http protocol
    *
    * @param string $url
-   * @param string &$effectiveUrl
    * @param int $maxRedirs
    * @param string $cookie
    * @return int On error returns FALSE
    */
   private function _httpFileSize(
     $url,
-    &$effectiveUrl = null,
     $maxRedirs = 20,
     $cookie = null)
   {
@@ -163,7 +162,6 @@ class httpMultistreamDownloader
 
     $data = curl_exec($ch);
     $contentLenght = curl_getinfo($ch, \CURLINFO_CONTENT_LENGTH_DOWNLOAD);
-    $effectiveUrl = curl_getinfo($ch, \CURLINFO_EFFECTIVE_URL);
     $httpCode = curl_getinfo($ch, \CURLINFO_HTTP_CODE);
     curl_close($ch);
 
@@ -189,7 +187,7 @@ class httpMultistreamDownloader
       $this->totalBytes - $this->chunkSize * $this->chunkIndex);
     $range = $curChunkOffset . '-' . ($curChunkOffset + $curChunkLength - 1);
 
-    $ch = curl_init($this->effectiveUrl);
+    $ch = curl_init($this->url);
     
     curl_setopt_array($ch, array(
       \CURLOPT_WRITEFUNCTION => array($this, '_writeData'),
@@ -312,11 +310,6 @@ class httpMultistreamDownloader
     $this->maxRedirs = $maxRedirs;
   }
 
-  public function getEffectiveUrl()
-  {
-    return $this->effectiveUrl;
-  }
-
   public function setChunkSize($chunkSize)
   {
     $this->chunkSize = (int) $chunkSize;
@@ -333,7 +326,7 @@ class httpMultistreamDownloader
     {
       // Get file size over HHTP
       if (false === ($this->totalBytes = $this->_httpFileSize(
-          $this->url, $this->effectiveUrl, $this->maxRedirs, $this->cookie)))
+          $this->url, $this->maxRedirs, $this->cookie)))
         throw new Exception("Unable to get file size of \"$this->url\"");
     }
     

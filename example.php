@@ -7,16 +7,15 @@
  * @copyright Copyright (c) 2011 Mikhail Yurasov
  */
 
-include 'httpMultistreamDownloader.php';
+include 'Downloader.php';
 
-use ymF\Components\httpMultistreamDownloader;
+use ymF\Component\httpMultistreamDownloader\Downloader;
 
 $url = 'http://mirror.anl.gov/pub/ubuntu-iso/CDs-Edubuntu/6.06.1/edubuntu-6.06.1-install-amd64.iso';
 $outputFile = pathinfo($url, PATHINFO_BASENAME);
 
-$downloader = new httpMultistreamDownloader();
+$downloader = new Downloader($url);
 $downloader->setOutputFile($outputFile);
-$downloader->setUrl($url);
 $downloader->setMinCallbackPeriod(3);
 $downloader->setMaxParallelChunks(30);
 $downloader->setChunkSize(1024 * 1024);
@@ -43,13 +42,10 @@ $downloader->setProgressCallback(function($position, $totalBytes) use ($download
   });
 
 echo "Downloading $url ...\n";
-echo "Content length is: " . $downloader->getTotalBytes() . " bytes\n";
-echo "Effective url: " . $downloader->getEffectiveUrl(), "\n";
+echo "Content length: " . $downloader->getTotalBytes() . " bytes\n";
 
 $downloader->download();
 
 echo "Done!\n";
 echo "Output file size: " . filesize($outputFile) . " bytes\n";
-echo "Output file MD5 is: " . md5_file($outputFile) . "\n";
-
-?>
+echo "Output file MD5: " . md5_file($outputFile) . "\n";

@@ -9,7 +9,7 @@
 
 include 'Downloader.php';
 
-use ymF\Component\httpMultistreamDownloader\Downloader;
+use ymF\Component\HttpMultistreamDownloader\Downloader;
 
 $url = 'http://mirror.anl.gov/pub/ubuntu-iso/CDs-Edubuntu/6.06.1/edubuntu-6.06.1-install-amd64.iso';
 $outputFile = pathinfo($url, PATHINFO_BASENAME);
@@ -19,6 +19,7 @@ $downloader->setOutputFile($outputFile);
 $downloader->setMinCallbackPeriod(3);
 $downloader->setMaxParallelChunks(30);
 $downloader->setChunkSize(1024 * 1024);
+$downloader->setDebugMode(true);;
 
 $downloader->setProgressCallback(function($position, $totalBytes) use ($downloader)
   {

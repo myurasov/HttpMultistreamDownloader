@@ -5,7 +5,7 @@
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov
- * @version 1.0.2
+ * @version 1.0.3
  */
 
 namespace ymF\Components;
@@ -199,6 +199,7 @@ class httpMultistreamDownloader
       \CURLOPT_LOW_SPEED_TIME => $this->networkTimeout,
       \CURLOPT_LOW_SPEED_LIMIT => 1,
       \CURLOPT_COOKIE => $this->cookie,
+      \CURLOPT_FOLLOWLOCATION => true,
       \CURLOPT_VERBOSE => $this->debugMode
     ));
 

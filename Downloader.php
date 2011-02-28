@@ -5,7 +5,7 @@
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov
- * @version 1.0.4
+ * @version 1.0.5
  */
 
 namespace ymF\Component\HttpMultistreamDownloader;
@@ -77,8 +77,8 @@ class Downloader
   private function _download()
   {
     // Open output file for writing
-    if (false === ($this->outputFileHandle = @fopen($this->outputFile, 'w')))
-      throw new Exception("Failed to open file \"{$this->outputFile}\"");
+    if (false === ($this->outputFileHandle = @fopen($this->getOutputFile(), 'w')))
+      throw new Exception("Failed to open file \"{$this->getOutputFile()}\"");
 
     // Get file size
     $this->totalBytes = $this->getTotalBytes();
@@ -346,6 +346,14 @@ class Downloader
   public function setMaxParallelChunks($maxParallelChunks)
   {
     $this->maxParallelChunks = $maxParallelChunks;
+  }
+
+  public function getOutputFile()
+  {
+    if (is_null($this->outputFile) && !is_null($this->url))
+      $this->outputFile = basename($this->url);
+
+    return $this->outputFile;
   }
 
   // </editor-fold>

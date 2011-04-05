@@ -5,7 +5,7 @@
  *
  * @author Mikhail Yurasov <me@yurasov.me>
  * @copyright Copyright (c) 2011 Mikhail Yurasov
- * @version 1.0.5
+ * @version 1.0.6
  */
 
 namespace ymF\Component\HttpMultistreamDownloader;
@@ -35,6 +35,7 @@ class Downloader
   private $networkTimeout = 60;   // [sec]
   private $debugMode = false;
   private $runningChunks = 0;
+  private $userAgent = 'PHP';
 
   public function __construct($url)
   {
@@ -157,7 +158,8 @@ class Downloader
       \CURLOPT_COOKIE => $cookie,
       \CURLOPT_CONNECTTIMEOUT => $this->networkTimeout,
       \CURLOPT_LOW_SPEED_TIME => $this->networkTimeout,
-      \CURLOPT_LOW_SPEED_LIMIT => 1
+      \CURLOPT_LOW_SPEED_LIMIT => 1,
+      \CURLOPT_USERAGENT => $this->userAgent
     ));
 
     $data = curl_exec($ch);
@@ -198,7 +200,8 @@ class Downloader
       \CURLOPT_LOW_SPEED_LIMIT => 1,
       \CURLOPT_COOKIE => $this->cookie,
       \CURLOPT_FOLLOWLOCATION => true,
-      \CURLOPT_VERBOSE => $this->debugMode
+      \CURLOPT_VERBOSE => $this->debugMode,
+      \CURLOPT_USERAGENT => $this->userAgent
     ));
 
     $this->curlHandles[(string) $ch] = $ch;
@@ -354,6 +357,16 @@ class Downloader
       $this->outputFile = basename($this->url);
 
     return $this->outputFile;
+  }
+
+  public function getUserAgent()
+  {
+    return $this->userAgent;
+  }
+
+  public function setUserAgent($userAgent)
+  {
+    $this->userAgent = $userAgent;
   }
 
   // </editor-fold>

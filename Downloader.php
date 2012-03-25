@@ -168,7 +168,7 @@ class Downloader
     curl_close($ch);
 
     // Check HTTP response code
-    if (substr((string)$httpCode, 0, 1) != 2)
+    if (substr((string) $httpCode, 0, 1) != 2)
       return false; // Bad HTTP response code
 
     if ($contentLenght < 0)
